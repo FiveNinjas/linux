@@ -1,0 +1,326 @@
+/*
+ * ASoC Driver for Slice on-board sound
+ *
+ * Author:	James Adams <james@fiveninjas.com>
+ * Based on the HifiBerry DAC driver by Florian Meier <florian.meier@koalo.de>
+ *		Copyright 2014
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ */
+
+#include <linux/module.h>
+#include <linux/platform_device.h>
+
+#include <linux/io.h>
+
+#include <sound/core.h>
+#include <sound/pcm.h>
+#include <sound/pcm_params.h>
+#include <sound/soc.h>
+#include <sound/jack.h>
+
+#include "../codecs/cs4265.h"
+
+static void __iomem *aper_base;
+static void __iomem *apll_base;
+static void __iomem *a2w_base;
+
+#define CM_PLLA  (apll_base)
+#define A2W_APER (a2w_base)
+
+static int snd_slice_init(struct snd_soc_pcm_runtime *rtd)
+{
+	return 0;
+}
+
+#define BCM2708_CLK_PASSWD		(0x5a000000)
+#define BCM2708_CLK_MASH(v)		((v) << 9)
+#define BCM2708_CLK_FLIP		BIT(8)
+#define BCM2708_CLK_BUSY		BIT(7)
+#define BCM2708_CLK_KILL		BIT(5)
+#define BCM2708_CLK_ENAB		BIT(4)
+#define BCM2708_CLK_SRC(v)		(v)
+
+#define BCM2708_CLK_LOADMASK            BIT(6)
+#define BCM2708_CLK_HOLDMASK            BIT(7)
+#define BCM2708_CLK_CHENB               BIT(8)
+
+void set_aper(int div)
+{
+   if ( div == 0 ) {
+      writel(BCM2708_CLK_PASSWD | (readl(CM_PLLA) & ~BCM2708_CLK_LOADMASK)
+                         | BCM2708_CLK_HOLDMASK, CM_PLLA);
+      // This line removes the channel enable and resets the divisor to 0
+      // and disables the bypass clock
+      writel(BCM2708_CLK_PASSWD | BCM2708_CLK_CHENB, A2W_APER);
+      return;
+   }
+
+   // To save time reading status bits from a2w regs we perform the same
+   // actions for starting a channel and changing a channel
+   // First we enable the channel and set the divisor
+   writel(BCM2708_CLK_PASSWD | div, A2W_APER);
+
+   // Now load the divisor
+   writel(BCM2708_CLK_PASSWD | readl(CM_PLLA) | BCM2708_CLK_LOADMASK, CM_PLLA);
+   writel(BCM2708_CLK_PASSWD | (readl(CM_PLLA) & ~BCM2708_CLK_LOADMASK), CM_PLLA);
+
+   // Now remove the hold (does nothing if already running)
+   writel(BCM2708_CLK_PASSWD | (readl(CM_PLLA) & ~BCM2708_CLK_HOLDMASK), CM_PLLA);
+}
+
+
+static void set_gp0div(unsigned int val)
+{
+  int timeout = 1000;
+
+  // First stop the clock
+  writel(BCM2708_CLK_PASSWD | (readl(aper_base) & ~BCM2708_CLK_ENAB), aper_base);
+
+  // Wait until it is not busy
+  while (--timeout && (readl(aper_base) & BCM2708_CLK_BUSY));
+
+  if (timeout) {
+    writel(val | BCM2708_CLK_PASSWD, aper_base + 4);
+    writel(readl(aper_base) | BCM2708_CLK_PASSWD | BCM2708_CLK_ENAB, aper_base);
+    printk(KERN_ERR "New clock set");
+  }
+  else
+    printk(KERN_ERR "Failed waiting for clock to stop");
+}
+
+
+static int snd_slice_hw_params(struct snd_pcm_substream *substream,
+				       struct snd_pcm_hw_params *params)
+{
+	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct snd_soc_dai *codec_dai = rtd->codec_dai;
+	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
+	struct snd_soc_codec *codec = rtd->codec;
+	int err;
+	int ret;
+	unsigned int rate = params_rate(params);
+	unsigned int sysclk = 12288000;
+
+	switch (rate) {
+		case 32000:
+			sysclk = 12288000;
+			break;
+		case 44100:
+			sysclk = 11289600;
+			break;
+		case 48000:
+			sysclk = 12288000;
+			break;
+		case 64000:
+			sysclk = 12288000;
+			break;
+		case 88200:
+			sysclk = 11289600;
+			break;
+		case 96000:
+			sysclk = 12288000;
+			break;
+		case 128000:
+			dev_err(codec->dev,
+			"Failed to set CS4265 SYSCLK, sample rate not supported in ALSA: 128000\n");
+			break;
+		case 176400:
+			sysclk = 11289600;
+			break;
+		case 192000:
+			sysclk = 12288000;
+			break;
+		default:
+			dev_err(codec->dev,
+			"Failed to set CS4265 SYSCLK, sample rate not supported\n");
+			break;
+	}
+
+	// Need two frequencies: 12.288 or 11.2896MHz
+	// Source is 1,806,336,000
+	// /4 /40 - 1128960
+	// /7 /21 - 1228800
+	if (sysclk == 12288000) {
+		set_aper(0);
+		set_aper(7);
+		set_gp0div(0x15000);
+		printk(KERN_ERR "Setting hw_params, GP0_CTL=0x%x GP0_DIV=0x%x\n", readl(aper_base), readl(aper_base+0x4));
+	} else {
+		set_aper(0);
+		set_aper(4);
+		set_gp0div(0x28000);
+		printk(KERN_ERR "Setting hw_params, GP0_CTL=0x%x GP0_DIV=0x%x\n", readl(aper_base), readl(aper_base+0x4));
+ 	}
+
+	printk(KERN_ERR "A2W_APER = 0x%x", readl(A2W_APER));
+
+	dev_err(codec->dev, "Set sampling frequency %d, using sysclk %d\n", rate, sysclk);
+
+	err = snd_soc_dai_set_sysclk(codec_dai, 0, sysclk,
+				     SND_SOC_CLOCK_OUT);
+
+	ret = snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_I2S |
+				  SND_SOC_DAIFMT_NB_NF |
+				  SND_SOC_DAIFMT_CBM_CFM);
+
+	if (ret) {
+		dev_err(cpu_dai->dev,
+			"Failed to set the cpu dai format.\n");
+		return ret;
+	}
+
+	ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_I2S |
+				  SND_SOC_DAIFMT_NB_NF |
+				  SND_SOC_DAIFMT_CBM_CFM);
+	if (ret) {
+		dev_err(cpu_dai->dev,
+			"Failed to set the codec format.\n");
+		return ret;
+	}
+
+	snd_soc_dai_set_bclk_ratio(cpu_dai, 64);
+
+	return 0;
+}
+
+/* machine stream operations */
+static struct snd_soc_ops snd_slice_ops = {
+	.hw_params = snd_slice_hw_params,
+};
+
+/* Widgets */
+static const struct snd_soc_dapm_widget snd_slice_dapm_widgets[] = {
+	SND_SOC_DAPM_SPK("Speaker 1", NULL),
+	SND_SOC_DAPM_SPK("Speaker 2", NULL),
+	SND_SOC_DAPM_MIC("Mic 1", NULL),
+	SND_SOC_DAPM_MIC("Mic 2", NULL),
+	SND_SOC_DAPM_MIC("LineIn 1", NULL),
+	SND_SOC_DAPM_MIC("LineIn 2", NULL),
+	SND_SOC_DAPM_SPK("Spdif", NULL),
+};
+
+/* Audio Map */
+static const struct snd_soc_dapm_route snd_slice_audio_map[] = {
+	{"Speaker 1", NULL, "LINEOUTL"},
+	{"Speaker 2", NULL, "LINEOUTR"},
+	{"MICL", NULL, "Mic 1"},
+	{"MICR", NULL, "Mic 2"},
+	{"LINEINL", NULL, "LineIn 1"},
+	{"LINEINR", NULL, "LineIn 2"},
+	{"Spdif", NULL, "SPDIF"},
+};
+
+static struct snd_soc_dai_link snd_slice_dai[] = {
+{
+	.name		= "Slice",
+	.stream_name	= "Slice HiFi",
+	.cpu_dai_name	= "bcm2708-i2s.0",
+	.codec_dai_name	= "cs4265-dai1",
+	.platform_name	= "bcm2708-i2s.0",
+	.codec_name	= "cs4265.1-004e",
+	.dai_fmt	= SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF |
+				SND_SOC_DAIFMT_CBM_CFM,
+	.ops		= &snd_slice_ops,
+	.init		= snd_slice_init,
+},
+};
+
+/* audio machine driver */
+static struct snd_soc_card snd_slice = {
+	.name         = "snd_slice",
+	.dai_link     = snd_slice_dai,
+	.num_links    = ARRAY_SIZE(snd_slice_dai),
+	.fully_routed = 1,
+	.dapm_widgets = snd_slice_dapm_widgets,
+	.num_dapm_widgets = ARRAY_SIZE(snd_slice_dapm_widgets),
+	.dapm_routes = snd_slice_audio_map,
+	.num_dapm_routes = ARRAY_SIZE(snd_slice_audio_map),
+};
+
+static int snd_slice_probe(struct platform_device *pdev)
+{
+	int ret = 0;
+	struct resource *mem;
+	snd_slice.dev = &pdev->dev;
+
+	if (pdev->dev.of_node) {
+		struct device_node *i2s_node;
+		struct snd_soc_dai_link *dai = &snd_slice_dai[0];
+		i2s_node = of_parse_phandle(pdev->dev.of_node,
+					    "i2s-controller", 0);
+
+		if (i2s_node) {
+			dai->cpu_dai_name = NULL;
+			dai->cpu_of_node = i2s_node;
+			dai->platform_name = NULL;
+			dai->platform_of_node = i2s_node;
+		}
+	}
+	else
+	{
+		printk(KERN_ERR "SLICEAUDIO - ERROR no Device Tree!\n");
+	}
+
+	ret = snd_soc_register_card(&snd_slice);
+	if (ret) {
+		dev_err(&pdev->dev,
+			"snd_soc_register_card() failed: %d\n", ret);
+		goto snd_soc_register_card_failed;
+	}
+
+	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	aper_base = devm_ioremap_resource(&pdev->dev, mem);
+	if (IS_ERR(aper_base))
+		return PTR_ERR(aper_base);
+
+	mem = platform_get_resource(pdev, IORESOURCE_MEM, 1);
+	apll_base = devm_ioremap_resource(&pdev->dev, mem);
+	if (IS_ERR(apll_base))
+		return PTR_ERR(apll_base);
+
+	mem = platform_get_resource(pdev, IORESOURCE_MEM, 2);
+	a2w_base = devm_ioremap_resource(&pdev->dev, mem);
+	if (IS_ERR(a2w_base))
+		return PTR_ERR(a2w_base);
+
+	return 0;
+
+snd_soc_register_card_failed:
+
+	return ret;
+}
+
+static int snd_slice_remove(struct platform_device *pdev)
+{
+	return snd_soc_unregister_card(&snd_slice);
+}
+
+static const struct of_device_id slice_of_match[] = {
+	{ .compatible = "fiveninjas,slice", },
+	{},
+};
+MODULE_DEVICE_TABLE(of, slice_of_match);
+
+static struct platform_driver snd_slice_driver = {
+	.driver = {
+		.name   = "snd-slice",
+		.owner  = THIS_MODULE,
+		.of_match_table = slice_of_match,
+	},
+	.probe          = snd_slice_probe,
+	.remove         = snd_slice_remove,
+};
+
+module_platform_driver(snd_slice_driver);
+
+MODULE_AUTHOR("James Adams <james@fiveninjas.com>");
+MODULE_DESCRIPTION("ASoC Driver for Slice on-board audio");
+MODULE_LICENSE("GPL v2");
