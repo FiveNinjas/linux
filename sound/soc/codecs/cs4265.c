@@ -87,9 +87,9 @@ static bool cs4265_volatile_register(struct device *dev, unsigned int reg)
 {
 	switch (reg) {
 	case CS4265_INT_STATUS:
-		return true;
+		return 1;
 	default:
-		return false;
+		return 0;
 	}
 }
 
@@ -142,15 +142,12 @@ static const struct snd_kcontrol_new loopback_ctl =
 	SOC_DAPM_SINGLE("Switch", CS4265_SIG_SEL, 1, 1, 0);
 
 static const struct snd_kcontrol_new spdif_switch =
-	SOC_DAPM_SINGLE("Switch", SND_SOC_NOPM, 0, 0, 0);
-
-static const struct snd_kcontrol_new dac_switch =
-	SOC_DAPM_SINGLE("Switch", CS4265_PWRCTL, 1, 1, 0);
+	SOC_DAPM_SINGLE("Switch", CS4265_SPDIF_CTL2, 5, 1, 1);
 
 static const struct snd_kcontrol_new cs4265_snd_controls[] = {
 
 	SOC_DOUBLE_R_SX_TLV("PGA Volume", CS4265_CHA_PGA_CTL,
-			      CS4265_CHB_PGA_CTL, 0, 0x28, 0x30, pga_tlv),
+			      CS4265_CHB_PGA_CTL, 0, 0x28, 0x18, pga_tlv),
 	SOC_DOUBLE_R_TLV("DAC Volume", CS4265_DAC_CHA_VOL,
 		      CS4265_DAC_CHB_VOL, 0, 0xFF, 1, dac_tlv),
 	SOC_SINGLE("De-emp 44.1kHz Switch", CS4265_DAC_CTL, 1,
@@ -173,10 +170,10 @@ static const struct snd_kcontrol_new cs4265_snd_controls[] = {
 	SOC_SINGLE("Validity Bit Control Switch", CS4265_SPDIF_CTL2,
 				3, 1, 0),
 	SOC_ENUM("SPDIF Mono/Stereo", spdif_mono_stereo_enum),
-	SOC_SINGLE("MMTLR Data Switch", 0,
-				1, 1, 0),
+	SOC_SINGLE("MMTLR Data Switch", CS4265_SPDIF_CTL2,
+				0, 1, 0),
 	SOC_ENUM("Mono Channel Select", spdif_mono_select_enum),
-	SND_SOC_BYTES("C Data Buffer", CS4265_C_DATA_BUFF, 24),
+	//SND_SOC_BYTES("C Data Buffer", CS4265_C_DATA_BUFF, 24),
 };
 
 static const struct snd_soc_dapm_widget cs4265_dapm_widgets[] = {
@@ -190,6 +187,8 @@ static const struct snd_soc_dapm_widget cs4265_dapm_widgets[] = {
 			SND_SOC_NOPM, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("SPDIFOUT", NULL,  0,
 			SND_SOC_NOPM, 0, 0),
+
+	SND_SOC_DAPM_DAC("DAC", NULL, CS4265_PWRCTL, 1, 1),
 
 	SND_SOC_DAPM_MUX("ADC Mux", SND_SOC_NOPM, 0, 0, &mic_linein_mux),
 
@@ -208,8 +207,6 @@ static const struct snd_soc_dapm_widget cs4265_dapm_widgets[] = {
 			&loopback_ctl),
 	SND_SOC_DAPM_SWITCH("SPDIF", SND_SOC_NOPM, 0, 0,
 			&spdif_switch),
-	SND_SOC_DAPM_SWITCH("DAC", CS4265_PWRCTL, 1, 1,
-			&dac_switch),
 
 	SND_SOC_DAPM_AIF_IN("DIN1", NULL,  0,
 			SND_SOC_NOPM, 0, 0),
@@ -231,7 +228,7 @@ static const struct snd_soc_dapm_route cs4265_audio_map[] = {
 	{"SDIN2 Input Mixer", NULL, "DIN2"},
 	{"Input Mux", "SDIN1", "SDIN1 Input Mixer"},
 	{"Input Mux", "SDIN2", "SDIN2 Input Mixer"},
-	{"DAC", "Switch", "Input Mux"},
+	{"DAC", NULL, "Input Mux"},
 	{"SPDIF", "Switch", "Input Mux"},
 	{"LINEOUTL", NULL, "DAC"},
 	{"LINEOUTR", NULL, "DAC"},
@@ -455,16 +452,16 @@ static int cs4265_pcm_hw_params(struct snd_pcm_substream *substream,
 			CS4265_SPDIF_CTL2_DIF, (1 << 6));
 		break;
 	case SND_SOC_DAIFMT_RIGHT_J:
-		if (params_width(params) == 16) {
+		if (params_format(params) & SNDRV_PCM_FORMAT_S16_LE) {
 			snd_soc_update_bits(codec, CS4265_DAC_CTL,
-				CS4265_DAC_CTL_DIF, (1 << 5));
+				CS4265_DAC_CTL_DIF, (2 << 4));
 			snd_soc_update_bits(codec, CS4265_SPDIF_CTL2,
-				CS4265_SPDIF_CTL2_DIF, (1 << 7));
+				CS4265_SPDIF_CTL2_DIF, (2 << 6));
 		} else {
 			snd_soc_update_bits(codec, CS4265_DAC_CTL,
-				CS4265_DAC_CTL_DIF, (3 << 5));
+				CS4265_DAC_CTL_DIF, (3 << 4));
 			snd_soc_update_bits(codec, CS4265_SPDIF_CTL2,
-				CS4265_SPDIF_CTL2_DIF, (1 << 7));
+				CS4265_SPDIF_CTL2_DIF, (3 << 6));
 		}
 		break;
 	case SND_SOC_DAIFMT_LEFT_J:
@@ -473,7 +470,7 @@ static int cs4265_pcm_hw_params(struct snd_pcm_substream *substream,
 		snd_soc_update_bits(codec, CS4265_ADC_CTL,
 			CS4265_ADC_DIF, 0);
 		snd_soc_update_bits(codec, CS4265_SPDIF_CTL2,
-			CS4265_SPDIF_CTL2_DIF, (1 << 6));
+			CS4265_SPDIF_CTL2_DIF, 0);
 
 		break;
 	default:
@@ -605,12 +602,18 @@ static int cs4265_i2c_probe(struct i2c_client *i2c_client,
 		return ret;
 	}
 
-	cs4265->reset_gpio = devm_gpiod_get_optional(&i2c_client->dev,
-		"reset", GPIOD_OUT_LOW);
-	if (IS_ERR(cs4265->reset_gpio))
-		return PTR_ERR(cs4265->reset_gpio);
+	cs4265->reset_gpio = devm_gpiod_get(&i2c_client->dev,
+		"cs4265-reset");
+	if (IS_ERR(cs4265->reset_gpio)) {
+		ret = PTR_ERR(cs4265->reset_gpio);
+		if (ret != -ENOENT && ret != -ENOSYS)
+			return ret;
 
-	if (cs4265->reset_gpio) {
+		cs4265->reset_gpio = NULL;
+	} else {
+		ret = gpiod_direction_output(cs4265->reset_gpio, 0);
+		if (ret)
+			return ret;
 		mdelay(1);
 		gpiod_set_value_cansleep(cs4265->reset_gpio, 1);
 	}
@@ -623,7 +626,7 @@ static int cs4265_i2c_probe(struct i2c_client *i2c_client,
 		ret = -ENODEV;
 		dev_err(&i2c_client->dev,
 			"CS4265 Device ID (%X). Expected %X\n",
-			devid, CS4265_CHIP_ID);
+			devid, CS4265_CHIP_ID_VAL);
 		return ret;
 	}
 	dev_info(&i2c_client->dev,
