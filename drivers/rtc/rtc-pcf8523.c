@@ -299,7 +299,13 @@ static int pcf8523_probe(struct i2c_client *client,
 	if (!pcf)
 		return -ENOMEM;
 
-	err = pcf8523_select_capacitance(client, true);
+	if (of_property_read_bool(client->dev.of_node, "nxp,xtalcap-7pf")) {
+		printk(KERN_ERR "PCF8523 - set 7pF crystal load");
+		err = pcf8523_select_capacitance(client, false);
+	} else {
+		printk(KERN_ERR "PCF8523 - set 12pF crystal load");
+		err = pcf8523_select_capacitance(client, true);
+	}
 	if (err < 0)
 		return err;
 
