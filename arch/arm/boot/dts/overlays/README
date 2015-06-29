@@ -510,6 +510,11 @@ Params: speed                    Display SPI bus speed
             Old touch display:
                 dtoverlay=tinylcd35,touch,touchgpio=3
 
+Name:   ws2812
+Info:   WS2812 LED driver using Raspberry Pi PWM interface
+Load:   dtoverlay=ws2812,<param>=<val>
+Params: invert                   Enable inversion of the PWM output
+        num_leds                 Configure number of LEDs
 
 Name:   uart1
 Info:   Enable uart1 in place of uart0
