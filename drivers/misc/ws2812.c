@@ -129,10 +129,12 @@ static void pwm_writel(struct ws2812_state * state, uint32_t val, uint32_t reg)
 	writel(val, state->ioaddr + reg);
 }
 
+#if 0
 static uint32_t pwm_readl(struct ws2812_state * state, uint32_t reg)
 {
 	return readl(state->ioaddr + reg);
 }
+endif
 
 /* Initialise the PWM module to use serial output
  * mode
