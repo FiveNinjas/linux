@@ -27,6 +27,10 @@
         brcm,pins = <28 29 30 31>;
         brcm,function = <6>; /* alt2 */
       };
+      ws2812_pins: ws2812 {
+        brcm,pins = <40>;
+        brcm,function = <4>; /* alt0 */
+      };
     };
   };
 
@@ -127,6 +131,29 @@
       pinctrl-names = "default";
       pinctrl-0 = <&i2s_pins>;
       status = "okay";
+    };
+  };
+
+  //
+  // WS2812B LEDs driver
+  //
+  fragment@6 {
+    target = <&soc>;
+    __overlay__ {
+      #address-cells = <1>;
+      #size-cells = <1>;
+      ws2812: ws2812 {
+        compatible = "rpi,ws2812";
+        pinctrl-names = "default";
+        pinctrl-0 = <&ws2812_pins>;
+        reg = <0x7e20c000 0x100>; /* PWM */
+        dmas = <&dma 5>;
+        dma-names = "pwm_dma";
+        led-en-gpios = <&gpio 43 0>;
+        rpi,invert = <1>;
+        rpi,num_leds = <25>;
+        status = "okay";
+      };
     };
   };
 
