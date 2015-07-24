@@ -509,8 +509,11 @@ static int cs4265_set_bias_level(struct snd_soc_codec *codec,
 			SNDRV_PCM_RATE_88200 | SNDRV_PCM_RATE_96000 | \
 			SNDRV_PCM_RATE_176400 | SNDRV_PCM_RATE_192000)
 
-#define CS4265_FORMATS (SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_U16_LE | \
-			SNDRV_PCM_FMTBIT_S24_LE | SNDRV_PCM_FMTBIT_U24_LE)
+#define CS4265_FORMATS (SNDRV_PCM_FMTBIT_S16_LE | \
+			SNDRV_PCM_FMTBIT_S24_LE | SNDRV_PCM_FMTBIT_S32_LE)
+
+#define CS4265_FORMATS_NOS16LE (SNDRV_PCM_FMTBIT_S24_LE | \
+			SNDRV_PCM_FMTBIT_S32_LE)
 
 static const struct snd_soc_dai_ops cs4265_ops = {
 	.hw_params	= cs4265_pcm_hw_params,
@@ -635,9 +638,21 @@ static int cs4265_i2c_probe(struct i2c_client *i2c_client,
 
 	regmap_write(cs4265->regmap, CS4265_PWRCTL, 0x0F);
 
+	/* at least one SoC I2S controller has some issues with 16 bit
+	   packed mode in certain circumstances, so provide the option
+	   to remove support for it */
+	if(of_property_read_bool(i2c_client->dev.of_node, "cirrus,no-s16le"))
+	{
+		cs4265_dai[0].playback.formats = CS4265_FORMATS_NOS16LE;
+		cs4265_dai[0].capture.formats = CS4265_FORMATS_NOS16LE;
+		cs4265_dai[1].playback.formats = CS4265_FORMATS_NOS16LE;
+		cs4265_dai[1].capture.formats = CS4265_FORMATS_NOS16LE;
+	}
+
 	ret =  snd_soc_register_codec(&i2c_client->dev,
 			&soc_codec_cs4265, cs4265_dai,
 			ARRAY_SIZE(cs4265_dai));
+
 	return ret;
 }
 
