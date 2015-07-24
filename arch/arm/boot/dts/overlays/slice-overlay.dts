@@ -130,6 +130,7 @@
     __overlay__ {
       pinctrl-names = "default";
       pinctrl-0 = <&i2s_pins>;
+      brcm,enable-mmap;
       status = "okay";
     };
   };
