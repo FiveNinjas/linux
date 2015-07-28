@@ -68,7 +68,6 @@
         compatible = "cirrus,cs4265";
         reg = <0x4e>;
         cs4265-reset-gpios = <&gpio 33 0>; /* AUD_RST_N on GPIO33 */
-        cirrus,no-s16le; /* remove S16LE support to workaround I2S controller issue */
         status = "okay";
       };
     };
