@@ -159,4 +159,13 @@
     };
   };
 
+  //
+  // Disable standard audio
+  //
+  fragment@7 {
+    target = <&audio>;
+    __overlay__ {
+      status = "disabled";
+    };
+  };
 };
