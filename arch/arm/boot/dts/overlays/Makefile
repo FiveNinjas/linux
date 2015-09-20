@@ -46,7 +46,6 @@ dtb-$(RPI_DT_OVERLAYS) += rpi-proto-overlay.dtb
 dtb-$(RPI_DT_OVERLAYS) += rpi-sense-overlay.dtb
 dtb-$(RPI_DT_OVERLAYS) += sdhost-overlay.dtb
 dtb-$(RPI_DT_OVERLAYS) += sdio-overlay.dtb
-dtb-$(RPI_DT_OVERLAYS) += slice-overlay.dtb
 dtb-$(RPI_DT_OVERLAYS) += smi-dev-overlay.dtb
 dtb-$(RPI_DT_OVERLAYS) += smi-nand-overlay.dtb
 dtb-$(RPI_DT_OVERLAYS) += smi-overlay.dtb
@@ -59,6 +58,7 @@ dtb-$(RPI_DT_OVERLAYS) += vga666-overlay.dtb
 dtb-$(RPI_DT_OVERLAYS) += w1-gpio-overlay.dtb
 dtb-$(RPI_DT_OVERLAYS) += w1-gpio-pullup-overlay.dtb
 dtb-$(RPI_DT_OVERLAYS) += ws2812-overlay.dtb
+dtb-$(RPI_DT_OVERLAYS) += slice-overlay.dtb
 
 targets += dtbs dtbs_install
 targets += $(dtb-y)
